@@ -181,7 +181,7 @@ export default function ExhibitionsPage() {
                         onClick={(e) => { e.stopPropagation(); favMutation.mutate(ex.id); }}
                         className="p-1.5 hover:bg-gray-100 rounded-full"
                       >
-                        <Heart size={16} className="text-gray-300" />
+                        <Heart size={16} className={ex.isFavorited ? 'text-red-500 fill-red-500' : 'text-gray-300'} />
                       </button>
                     )}
                     {/* Artist 빠른 지원 버튼 */}

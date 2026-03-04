@@ -314,6 +314,7 @@ function FavoritesSection() {
               <button
                 onClick={() => {
                   if (fav.galleryId) navigate(`/galleries/${fav.galleryId}`);
+                  else if (fav.exhibitionId) navigate(`/exhibitions/${fav.exhibitionId}`);
                 }}
                 className="text-sm font-medium text-left hover:text-blue-500"
               >

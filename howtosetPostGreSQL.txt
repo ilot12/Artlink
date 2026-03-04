@@ -1,0 +1,116 @@
+============================================================
+  ArtLink - PostgreSQL 설치 및 설정 가이드
+  대상 환경: Ubuntu / WSL2 (Debian 계열)
+============================================================
+
+[1단계] PostgreSQL 설치
+------------------------------------------------------------
+sudo apt update
+sudo apt install -y postgresql postgresql-client
+
+설치 확인:
+  psql --version
+  # 예: psql (PostgreSQL) 16.x
+
+
+[2단계] PostgreSQL 서비스 시작
+------------------------------------------------------------
+sudo service postgresql start
+
+실행 확인:
+  pg_isready
+  # 예: /var/run/postgresql:5432 - accepting connections
+
+참고: WSL2에서는 부팅 시 자동 시작되지 않으므로,
+      매번 수동으로 시작하거나 run_web.sh가 자동 처리합니다.
+
+
+[3단계] DB 유저 및 데이터베이스 생성
+------------------------------------------------------------
+sudo -u postgres psql -c "CREATE USER artlink WITH PASSWORD 'artlink_dev_password';"
+sudo -u postgres psql -c "ALTER USER artlink CREATEDB;"
+sudo -u postgres psql -c "CREATE DATABASE artlink OWNER artlink;"
+
+  - artlink 유저 생성 (비밀번호: artlink_dev_password)
+  - CREATEDB 권한 부여 (Prisma가 shadow DB를 생성하는데 필요)
+  - artlink 데이터베이스 생성 (소유자: artlink)
+
+연결 확인:
+  PGPASSWORD=artlink_dev_password psql -U artlink -d artlink -h localhost -c "SELECT 1;"
+  # 결과: 1 이 출력되면 성공
+
+
+[4단계] 환경변수 설정
+------------------------------------------------------------
+backend/.env 파일에 다음이 설정되어 있어야 합니다:
+
+  DATABASE_URL="postgresql://artlink:artlink_dev_password@localhost:5432/artlink"
+
+이미 설정되어 있으므로 별도 수정 불필요.
+다른 환경에서 사용 시 이 값만 변경하면 됩니다.
+
+  예시 (AWS RDS):
+    DATABASE_URL="postgresql://user:pass@rds-endpoint:5432/artlink"
+  예시 (Supabase):
+    DATABASE_URL="postgresql://user:pass@db.xxx.supabase.co:5432/postgres"
+
+
+[5단계] Prisma 마이그레이션 및 시드 데이터
+------------------------------------------------------------
+cd backend
+npx prisma generate          # Prisma 클라이언트 생성
+npx prisma migrate dev       # DB 스키마 마이그레이션 (14개 테이블 생성)
+npx tsx prisma/seed.ts       # 초기 데이터 투입 (4명 유저, 3개 갤러리 등)
+
+
+[6단계] 정상 작동 확인
+------------------------------------------------------------
+1) 테이블 확인:
+   PGPASSWORD=artlink_dev_password psql -U artlink -d artlink -h localhost \
+     -c "SELECT tablename FROM pg_tables WHERE schemaname='public';"
+   # 14개 테이블 + _prisma_migrations = 15개 출력되면 성공
+
+2) 시드 데이터 확인:
+   PGPASSWORD=artlink_dev_password psql -U artlink -d artlink -h localhost \
+     -c "SELECT id, name, role FROM \"User\";"
+   # Artist 1, Artist 2, Gallery Owner, Admin 출력
+
+3) 서버 실행 테스트:
+   cd backend && npx tsx src/index.ts
+   # "ArtLink 백엔드 서버 실행 중: http://localhost:4000" 출력
+
+4) API 테스트:
+   curl http://localhost:4000/api/galleries
+   # 3개 갤러리 JSON 반환
+
+
+[전체 자동 실행]
+------------------------------------------------------------
+프로젝트 루트에서:
+  bash run_web.sh
+
+이 스크립트가 PostgreSQL 시작 → 마이그레이션 → 시드 → 백엔드 → 프론트엔드를
+자동으로 실행합니다.
+
+
+[문제 해결]
+------------------------------------------------------------
+Q: "permission denied to create database" 에러
+A: CREATEDB 권한 부여가 필요합니다.
+   sudo -u postgres psql -c "ALTER USER artlink CREATEDB;"
+
+Q: "password authentication failed" 에러
+A: 유저 비밀번호 재설정:
+   sudo -u postgres psql -c "ALTER USER artlink WITH PASSWORD 'artlink_dev_password';"
+
+Q: "could not connect to server" 에러
+A: PostgreSQL 서비스 미실행 상태입니다:
+   sudo service postgresql start
+
+Q: WSL2 재시작 후 DB 접속 불가
+A: WSL2는 재시작 시 서비스가 꺼집니다:
+   sudo service postgresql start
+
+Q: Prisma DB GUI를 보고 싶다면
+A: cd backend && npx prisma studio
+   브라우저에서 http://localhost:5555 접속

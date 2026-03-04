@@ -1,13 +1,13 @@
 import { Router } from 'express';
 import prisma from '../lib/prisma';
-import { authenticate, authorize } from '../middleware/auth';
+import { authenticate, authorize, optionalAuth } from '../middleware/auth';
 import { AppError } from '../middleware/errorHandler';
 import { sendPortfolioEmail } from '../lib/mailer';
 
 const router = Router();
 
 // 진행중인 공모 목록 (마감일이 지나지 않은 것만)
-router.get('/', async (req, res, next) => {
+router.get('/', optionalAuth, async (req, res, next) => {
   try {
     const { region, minGalleryRating } = req.query;
 
@@ -33,7 +33,20 @@ router.get('/', async (req, res, next) => {
       filtered = exhibitions.filter(e => e.gallery.rating >= parseFloat(minGalleryRating as string));
     }
 
-    res.json(filtered);
+    // 로그인 유저의 찜 여부 확인
+    if (req.user) {
+      const favorites = await prisma.favorite.findMany({
+        where: {
+          userId: req.user.id,
+          exhibitionId: { in: filtered.map((e: any) => e.id) }
+        },
+        select: { exhibitionId: true }
+      });
+      const favSet = new Set(favorites.map(f => f.exhibitionId));
+      return res.json(filtered.map((e: any) => ({ ...e, isFavorited: favSet.has(e.id) })));
+    }
+
+    res.json(filtered.map((e: any) => ({ ...e, isFavorited: false })));
   } catch (error) { next(error); }
 });
 
@@ -75,7 +88,7 @@ router.get('/my-exhibitions', authenticate, authorize('GALLERY'), async (req, re
 });
 
 // 공모 상세 조회
-router.get('/:id', async (req, res, next) => {
+router.get('/:id', optionalAuth, async (req, res, next) => {
   try {
     const exhibition = await prisma.exhibition.findUnique({
       where: { id: parseInt(req.params.id as string) },
@@ -87,9 +100,19 @@ router.get('/:id', async (req, res, next) => {
       }
     });
     if (!exhibition) throw new AppError('공모를 찾을 수 없습니다.', 404);
+
+    // 찜 여부 확인
+    let isFavorited = false;
+    if (req.user) {
+      const fav = await prisma.favorite.findUnique({
+        where: { userId_exhibitionId: { userId: req.user.id, exhibitionId: exhibition.id } }
+      });
+      isFavorited = !!fav;
+    }
+
     // ownerId를 gallery 객체에 포함하여 프론트엔드에서 권한 체크 가능하도록
     const { owner, ...galleryRest } = exhibition.gallery as any;
-    res.json({ ...exhibition, gallery: { ...galleryRest, ownerId: owner?.id } });
+    res.json({ ...exhibition, gallery: { ...galleryRest, ownerId: owner?.id }, isFavorited });
   } catch (error) { next(error); }
 });
 

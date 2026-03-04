@@ -100,6 +100,7 @@ export default function GalleryDetailPage() {
       api.post('/reviews', data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['gallery', id] });
+      queryClient.invalidateQueries({ queryKey: ['gallery-of-month'] });
       // 폼 초기화
       setReviewContent('');
       setReviewRating(5);
@@ -114,6 +115,7 @@ export default function GalleryDetailPage() {
       api.patch(`/reviews/${data.reviewId}`, { rating: data.rating, content: data.content, anonymous: data.anonymous, imageUrl: data.imageUrl }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['gallery', id] });
+      queryClient.invalidateQueries({ queryKey: ['gallery-of-month'] });
       queryClient.invalidateQueries({ queryKey: ['my-reviews'] });
       setEditingReviewId(null);
       setReviewContent('');
@@ -130,6 +132,7 @@ export default function GalleryDetailPage() {
     mutationFn: (reviewId: number) => api.delete(`/reviews/${reviewId}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['gallery', id] });
+      queryClient.invalidateQueries({ queryKey: ['gallery-of-month'] });
       queryClient.invalidateQueries({ queryKey: ['my-reviews'] });
       toast.success('리뷰가 삭제되었습니다.');
     },

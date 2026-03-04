@@ -46,6 +46,7 @@ export interface Exhibition {
   galleryId: number;
   gallery: Pick<Gallery, 'id' | 'name' | 'rating' | 'mainImage' | 'region'>;
   promoPhotos?: PromoPhoto[];
+  isFavorited?: boolean;
 }
 
 export interface PromoPhoto {

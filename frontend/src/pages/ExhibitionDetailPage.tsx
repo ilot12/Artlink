@@ -18,7 +18,7 @@
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
-import { Star, Clock, Users, MapPin, Send, Trash2, ArrowLeft } from 'lucide-react';
+import { Star, Clock, Users, MapPin, Send, Trash2, ArrowLeft, Heart } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '@/lib/axios';
 import { useAuthStore } from '@/stores/authStore';
@@ -59,6 +59,16 @@ export default function ExhibitionDetailPage() {
     },
     onError: (err: any) => {
       toast.error(err.response?.data?.error || '지원 중 오류가 발생했습니다.');
+    },
+  });
+
+  // 찜하기 토글
+  const favMutation = useMutation({
+    mutationFn: () => api.post('/favorites/toggle', { exhibitionId: parseInt(id!) }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['exhibition', id] });
+      queryClient.invalidateQueries({ queryKey: ['exhibitions'] });
+      queryClient.invalidateQueries({ queryKey: ['favorites'] });
     },
   });
 
@@ -115,6 +125,15 @@ export default function ExhibitionDetailPage() {
         >
           <ArrowLeft size={20} />
         </button>
+        {/* 찜 버튼 (Admin 제외 로그인 유저) */}
+        {isAuthenticated && user?.role !== 'ADMIN' && (
+          <button
+            onClick={() => favMutation.mutate()}
+            className="absolute top-4 right-4 p-2 bg-white/80 backdrop-blur rounded-full shadow"
+          >
+            <Heart size={20} className={exhibition.isFavorited ? 'text-red-500 fill-red-500' : 'text-gray-400'} />
+          </button>
+        )}
         <div className="absolute bottom-4 left-4">
           <span className={`text-sm font-bold px-3 py-1 rounded-full ${
             isExpired ? 'bg-gray-500 text-white' : dday <= 7 ? 'bg-red-500 text-white' : 'bg-white text-gray-900'

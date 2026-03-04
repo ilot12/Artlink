@@ -13,6 +13,21 @@ FRONTEND_DIR="$PROJECT_ROOT/frontend"
 echo "🎨 ArtLink 개발 서버를 시작합니다..."
 echo "============================================"
 
+# 0. PostgreSQL 서비스 시작
+echo "🐘 PostgreSQL 서비스 확인 중..."
+if command -v pg_isready &> /dev/null; then
+  if ! pg_isready -q 2>/dev/null; then
+    echo "   PostgreSQL 시작 중..."
+    sudo service postgresql start
+  else
+    echo "   PostgreSQL 이미 실행 중"
+  fi
+else
+  echo "⚠️  PostgreSQL이 설치되지 않았습니다. 먼저 설치하세요:"
+  echo "   sudo apt install -y postgresql postgresql-client"
+  exit 1
+fi
+
 # 1. 의존성 설치 확인
 if [ ! -d "$BACKEND_DIR/node_modules" ]; then
   echo "📦 백엔드 의존성 설치 중..."

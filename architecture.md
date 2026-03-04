@@ -48,8 +48,7 @@ ArtLink/
 | PWA | vite-plugin-pwa | v1.2.0 |
 | 백엔드 | Express + TypeScript | - |
 | ORM | Prisma | v5 (⚠️ v7 사용 금지) |
-| DB (개발) | SQLite | - |
-| DB (프로덕션) | PostgreSQL 16 | Docker |
+| DB | PostgreSQL | 로컬: apt 설치, 배포: RDS/Supabase 등 |
 | 인증 | JWT (개발: 퀵 로그인) | - |
 | 파일 업로드 | Multer | - |
 
@@ -189,4 +188,16 @@ cd frontend && npm run dev
 
 - **Prisma v5만 사용** — v7은 `datasource url` 제거로 인한 breaking change
 - **Tailwind v4** — `@import "tailwindcss"` 문법 사용 (구 `@tailwind` 디렉티브 아님)
-- **SQLite (개발)** → PostgreSQL (프로덕션) 전환: `.env`의 `DATABASE_URL`만 변경
+- **PostgreSQL 사용** — 로컬/배포 동일 DB 엔진. `.env`의 `DATABASE_URL`만 환경별로 변경
+- **PostgreSQL 설치 가이드** — `howtosetPostGreSQL.txt` 참조
+
+## 버그 수정 이력 (submission/2, 2026-03-05)
+
+| 버그 | 근본원인 | 수정 파일 |
+|------|----------|-----------|
+| 공모 찜 미작동 | exhibition API에 optionalAuth 미사용, isFavorited 미반환 | `backend/src/routes/exhibition.ts` |
+| 공모 찜 하트 항상 회색 | isFavorited 상태 미반영 | `frontend/src/pages/ExhibitionsPage.tsx` |
+| 공모 상세에 찜 버튼 없음 | Heart 버튼 누락 | `frontend/src/pages/ExhibitionDetailPage.tsx` |
+| 마이페이지 찜 공모 클릭 무반응 | exhibitionId navigate 분기 누락 | `frontend/src/pages/MyPage.tsx` |
+| GotM 평점 미갱신 | 리뷰 mutation에서 gallery-of-month 쿼리 미invalidate | `frontend/src/pages/GalleryDetailPage.tsx` |
+| Exhibition 타입에 isFavorited 없음 | 타입 정의 누락 | `frontend/src/types/index.ts` |
