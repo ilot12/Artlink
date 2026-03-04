@@ -1,0 +1,209 @@
+import { Router } from 'express';
+import prisma from '../lib/prisma';
+import { authenticate, authorize } from '../middleware/auth';
+import { AppError } from '../middleware/errorHandler';
+import { sendPortfolioEmail } from '../lib/mailer';
+
+const router = Router();
+
+// 진행중인 공모 목록 (마감일이 지나지 않은 것만)
+router.get('/', async (req, res, next) => {
+  try {
+    const { region, minGalleryRating } = req.query;
+
+    const where: any = {
+      status: 'APPROVED',
+      deadline: { gte: new Date() }
+    };
+    if (region) where.region = region;
+
+    const exhibitions = await prisma.exhibition.findMany({
+      where,
+      include: {
+        gallery: {
+          select: { id: true, name: true, rating: true, mainImage: true, region: true }
+        }
+      },
+      orderBy: { deadline: 'asc' }
+    });
+
+    // 갤러리 별점 필터 (DB 레벨에서 어려우므로 앱 레벨 필터)
+    let filtered = exhibitions;
+    if (minGalleryRating) {
+      filtered = exhibitions.filter(e => e.gallery.rating >= parseFloat(minGalleryRating as string));
+    }
+
+    res.json(filtered);
+  } catch (error) { next(error); }
+});
+
+// 내 지원 내역 조회 (Artist 전용)
+router.get('/my-applications', authenticate, authorize('ARTIST'), async (req, res, next) => {
+  try {
+    const applications = await prisma.application.findMany({
+      where: { userId: req.user!.id },
+      include: {
+        exhibition: {
+          include: {
+            gallery: { select: { id: true, name: true, rating: true } }
+          }
+        }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+    res.json(applications);
+  } catch (error) { next(error); }
+});
+
+// 내 공모 목록 조회 (Gallery 유저 전용)
+router.get('/my-exhibitions', authenticate, authorize('GALLERY'), async (req, res, next) => {
+  try {
+    const galleries = await prisma.gallery.findMany({
+      where: { ownerId: req.user!.id },
+      select: { id: true }
+    });
+    const galleryIds = galleries.map(g => g.id);
+    const exhibitions = await prisma.exhibition.findMany({
+      where: { galleryId: { in: galleryIds } },
+      include: {
+        gallery: { select: { id: true, name: true } }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+    res.json(exhibitions);
+  } catch (error) { next(error); }
+});
+
+// 공모 상세 조회
+router.get('/:id', async (req, res, next) => {
+  try {
+    const exhibition = await prisma.exhibition.findUnique({
+      where: { id: parseInt(req.params.id as string) },
+      include: {
+        gallery: {
+          include: { owner: { select: { id: true } } }
+        },
+        promoPhotos: true
+      }
+    });
+    if (!exhibition) throw new AppError('공모를 찾을 수 없습니다.', 404);
+    // ownerId를 gallery 객체에 포함하여 프론트엔드에서 권한 체크 가능하도록
+    const { owner, ...galleryRest } = exhibition.gallery as any;
+    res.json({ ...exhibition, gallery: { ...galleryRest, ownerId: owner?.id } });
+  } catch (error) { next(error); }
+});
+
+// 공모 등록 요청 (Gallery 유저 전용)
+router.post('/', authenticate, authorize('GALLERY'), async (req, res, next) => {
+  try {
+    const { title, type, deadline, exhibitDate, capacity, region, description, galleryId } = req.body;
+
+    // 갤러리 소유권 확인
+    const gallery = await prisma.gallery.findUnique({ where: { id: galleryId } });
+    if (!gallery || gallery.ownerId !== req.user!.id) {
+      throw new AppError('본인 소유의 갤러리만 선택할 수 있습니다.', 403);
+    }
+
+    const exhibition = await prisma.exhibition.create({
+      data: {
+        title, type, deadline: new Date(deadline), exhibitDate: new Date(exhibitDate),
+        capacity, region, description, galleryId, status: 'PENDING'
+      }
+    });
+    res.status(201).json(exhibition);
+  } catch (error) { next(error); }
+});
+
+// 공모 지원 (Artist 전용) + 포트폴리오 이메일 자동전송
+router.post('/:id/apply', authenticate, authorize('ARTIST'), async (req, res, next) => {
+  try {
+    const exhibitionId = parseInt(req.params.id as string);
+
+    // 중복 지원 확인
+    const existing = await prisma.application.findUnique({
+      where: { userId_exhibitionId: { userId: req.user!.id, exhibitionId } }
+    });
+    if (existing) throw new AppError('이미 지원한 공모입니다.', 400);
+
+    const application = await prisma.application.create({
+      data: { userId: req.user!.id, exhibitionId }
+    });
+
+    // 포트폴리오 이메일 전송 (best-effort: 실패해도 지원은 성공)
+    try {
+      const exhibition = await prisma.exhibition.findUnique({
+        where: { id: exhibitionId },
+        include: { gallery: { include: { owner: { select: { email: true } } } } }
+      });
+      const portfolio = await prisma.portfolio.findUnique({
+        where: { userId: req.user!.id },
+        include: { images: { orderBy: { order: 'asc' } } }
+      });
+
+      if (exhibition && exhibition.gallery.owner.email) {
+        await sendPortfolioEmail({
+          artistName: req.user!.name,
+          artistEmail: req.user!.email,
+          biography: portfolio?.biography || undefined,
+          exhibitionHistory: portfolio?.exhibitionHistory || undefined,
+          imageUrls: portfolio?.images.map(img => img.url) || [],
+          exhibitionTitle: exhibition.title,
+          galleryName: exhibition.gallery.name,
+          galleryOwnerEmail: exhibition.gallery.owner.email,
+        });
+      }
+    } catch (emailErr) {
+      console.error('[Mailer] 이메일 전송 실패 (지원은 정상 처리됨):', emailErr);
+    }
+
+    res.status(201).json(application);
+  } catch (error) { next(error); }
+});
+
+// 공모 삭제 (Gallery 오너 또는 Admin)
+router.delete('/:id', authenticate, async (req, res, next) => {
+  try {
+    const exhibition = await prisma.exhibition.findUnique({
+      where: { id: parseInt(req.params.id as string) },
+      include: { gallery: { select: { ownerId: true } } }
+    });
+    if (!exhibition) throw new AppError('공모를 찾을 수 없습니다.', 404);
+
+    // 소유권 확인: Gallery 오너 또는 Admin만 삭제 가능
+    const isOwner = exhibition.gallery.ownerId === req.user!.id;
+    const isAdmin = req.user!.role === 'ADMIN';
+    if (!isOwner && !isAdmin) throw new AppError('권한이 없습니다.', 403);
+
+    // cascade로 Application, PromoPhoto, Favorite도 자동 삭제 (schema에 onDelete: Cascade 설정됨)
+    await prisma.exhibition.delete({ where: { id: exhibition.id } });
+    res.json({ message: '공모가 삭제되었습니다.' });
+  } catch (error) { next(error); }
+});
+
+// 홍보 사진 등록 (Gallery 전용, 전시 종료 후)
+router.post('/:id/promo-photos', authenticate, authorize('GALLERY'), async (req, res, next) => {
+  try {
+    const exhibition = await prisma.exhibition.findUnique({
+      where: { id: parseInt(req.params.id as string) },
+      include: { gallery: true }
+    });
+    if (!exhibition) throw new AppError('공모를 찾을 수 없습니다.', 404);
+    if (exhibition.gallery.ownerId !== req.user!.id) throw new AppError('권한이 없습니다.', 403);
+
+    const { url, caption } = req.body;
+    const photo = await prisma.promoPhoto.create({
+      data: { url, caption, exhibitionId: exhibition.id }
+    });
+    res.status(201).json(photo);
+  } catch (error) { next(error); }
+});
+
+// 홍보 사진 삭제
+router.delete('/:id/promo-photos/:photoId', authenticate, authorize('GALLERY'), async (req, res, next) => {
+  try {
+    await prisma.promoPhoto.delete({ where: { id: parseInt(req.params.photoId as string) } });
+    res.json({ message: '삭제되었습니다.' });
+  } catch (error) { next(error); }
+});
+
+export default router;

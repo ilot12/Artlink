@@ -1,0 +1,22 @@
+@import "tailwindcss";
+
+/* 커스텀 CSS 변수 */
+@theme {
+  --color-primary: #1a1a2e;
+  --color-accent: #e94560;
+  --color-surface: #ffffff;
+  --color-muted: #6b7280;
+  --color-border: #e5e7eb;
+  --font-sans: 'Pretendard', 'Apple SD Gothic Neo', 'Noto Sans KR', system-ui, sans-serif;
+}
+
+/* 전역 스타일 */
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}

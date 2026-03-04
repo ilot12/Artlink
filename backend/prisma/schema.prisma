@@ -1,0 +1,204 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// 사용자 모델
+model User {
+  id        Int      @id @default(autoincrement())
+  email     String   @unique
+  name      String
+  role      String   // ARTIST, GALLERY, ADMIN
+  avatar    String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  galleries      Gallery[]
+  reviews        Review[]
+  favorites      Favorite[]
+  portfolio      Portfolio?
+  applications   Application[]
+}
+
+// 갤러리 모델
+model Gallery {
+  id          Int      @id @default(autoincrement())
+  name        String
+  address     String
+  phone       String
+  description String
+  detailDesc  String?  // 상세 소개 (승인 후 수정 가능)
+  region      String   // SEOUL, GYEONGGI_NORTH, GYEONGGI_SOUTH, DAEJEON, BUSAN
+  rating      Float    @default(0)
+  reviewCount Int      @default(0)
+  status      String   @default("PENDING") // PENDING, APPROVED, REJECTED
+  rejectReason String?
+  ownerName   String
+  mainImage   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  ownerId     Int
+  owner       User         @relation(fields: [ownerId], references: [id])
+  images      GalleryImage[]
+  exhibitions Exhibition[]
+  reviews     Review[]
+  favorites   Favorite[]
+  galleryOfMonth GalleryOfMonth?
+}
+
+// 갤러리 이미지
+model GalleryImage {
+  id        Int      @id @default(autoincrement())
+  url       String
+  order     Int      @default(0)
+  galleryId Int
+  gallery   Gallery  @relation(fields: [galleryId], references: [id], onDelete: Cascade)
+}
+
+// 전시/공모 모델
+model Exhibition {
+  id          Int      @id @default(autoincrement())
+  title       String
+  type        String   // SOLO, ART_FAIR
+  deadline    DateTime
+  exhibitDate DateTime
+  capacity    Int
+  region      String
+  description String
+  status      String   @default("PENDING") // PENDING, APPROVED, REJECTED
+  rejectReason String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  galleryId   Int
+  gallery     Gallery     @relation(fields: [galleryId], references: [id], onDelete: Cascade)
+  applications Application[]
+  favorites    Favorite[]
+  promoPhotos  PromoPhoto[]
+}
+
+// 전시 종료 후 홍보 사진
+model PromoPhoto {
+  id           Int        @id @default(autoincrement())
+  url          String
+  caption      String?
+  exhibitionId Int
+  exhibition   Exhibition @relation(fields: [exhibitionId], references: [id], onDelete: Cascade)
+  createdAt    DateTime   @default(now())
+}
+
+// 히어로 슬라이드
+model HeroSlide {
+  id          Int      @id @default(autoincrement())
+  title       String
+  description String?
+  imageUrl    String
+  linkUrl     String?
+  order       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// 혜택
+model Benefit {
+  id          Int      @id @default(autoincrement())
+  title       String
+  description String
+  imageUrl    String?
+  linkUrl     String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// 이달의 갤러리
+model GalleryOfMonth {
+  id        Int      @id @default(autoincrement())
+  galleryId Int      @unique
+  gallery   Gallery  @relation(fields: [galleryId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
+// 리뷰
+model Review {
+  id        Int      @id @default(autoincrement())
+  rating    Int      // 1-5
+  content   String
+  imageUrl  String?
+  anonymous Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id])
+  galleryId Int
+  gallery   Gallery  @relation(fields: [galleryId], references: [id], onDelete: Cascade)
+}
+
+// 찜하기
+model Favorite {
+  id           Int         @id @default(autoincrement())
+  userId       Int
+  user         User        @relation(fields: [userId], references: [id])
+  galleryId    Int?
+  gallery      Gallery?    @relation(fields: [galleryId], references: [id], onDelete: Cascade)
+  exhibitionId Int?
+  exhibition   Exhibition? @relation(fields: [exhibitionId], references: [id], onDelete: Cascade)
+  createdAt    DateTime    @default(now())
+
+  @@unique([userId, galleryId])
+  @@unique([userId, exhibitionId])
+}
+
+// 포트폴리오
+model Portfolio {
+  id              Int              @id @default(autoincrement())
+  biography       String?
+  exhibitionHistory String?
+  userId          Int              @unique
+  user            User             @relation(fields: [userId], references: [id])
+  images          PortfolioImage[]
+  updatedAt       DateTime         @updatedAt
+}
+
+// 포트폴리오 이미지
+model PortfolioImage {
+  id          Int       @id @default(autoincrement())
+  url         String
+  order       Int       @default(0)
+  portfolioId Int
+  portfolio   Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+}
+
+// 지원
+model Application {
+  id           Int        @id @default(autoincrement())
+  userId       Int
+  user         User       @relation(fields: [userId], references: [id])
+  exhibitionId Int
+  exhibition   Exhibition @relation(fields: [exhibitionId], references: [id], onDelete: Cascade)
+  status       String     @default("SUBMITTED") // SUBMITTED, REVIEWED, ACCEPTED, REJECTED
+  createdAt    DateTime   @default(now())
+
+  @@unique([userId, exhibitionId])
+}
+
+// 승인 요청 (갤러리/공모 수정 요청)
+model ApprovalRequest {
+  id          Int      @id @default(autoincrement())
+  type        String   // GALLERY_EDIT, EXHIBITION_EDIT
+  targetId    Int      // galleryId or exhibitionId
+  changes     String   // JSON string of requested changes
+  status      String   @default("PENDING") // PENDING, APPROVED, REJECTED
+  rejectReason String?
+  requesterId Int
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}

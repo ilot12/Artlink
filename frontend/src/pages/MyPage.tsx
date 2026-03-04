@@ -1,0 +1,1206 @@
+import { useState, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { motion } from 'framer-motion';
+import {
+  LogOut, Heart, FileText, Send, Building2, Star, X, Plus, Check, XCircle,
+  Camera, Eye, Search, Calendar, Edit3, Trash2
+} from 'lucide-react';
+import toast from 'react-hot-toast';
+import api from '@/lib/axios';
+import { useAuthStore } from '@/stores/authStore';
+import { regionLabels, exhibitionTypeLabels, getDday } from '@/lib/utils';
+import ImageUpload, { MultiImageUpload } from '@/components/shared/ImageUpload';
+import type { Favorite, Portfolio } from '@/types';
+
+const regions = ['SEOUL', 'GYEONGGI_NORTH', 'GYEONGGI_SOUTH', 'DAEJEON', 'BUSAN'];
+
+export default function MyPage() {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const { user, logout } = useAuthStore();
+  const [activeTab, setActiveTab] = useState('profile');
+
+  const handleLogout = () => {
+    // 로그아웃 시 모든 캐시 제거 (다음 유저 로그인 시 stale 데이터 방지)
+    queryClient.clear();
+    logout();
+    navigate('/login');
+  };
+
+  if (!user) return null;
+
+  const tabs = user.role === 'ARTIST'
+    ? [
+        { id: 'profile', label: '프로필', icon: Camera },
+        { id: 'portfolio', label: '포트폴리오', icon: FileText },
+        { id: 'favorites', label: '찜 목록', icon: Heart },
+        { id: 'reviews', label: '내 리뷰', icon: Star },
+        { id: 'applications', label: '지원 내역', icon: Send },
+      ]
+    : user.role === 'GALLERY'
+    ? [
+        { id: 'profile', label: '프로필', icon: Camera },
+        { id: 'my-galleries', label: '내 갤러리', icon: Building2 },
+        { id: 'my-exhibitions', label: '내 공모', icon: FileText },
+      ]
+    : [
+        { id: 'profile', label: '프로필', icon: Camera },
+        { id: 'approvals', label: '승인 관리', icon: Check },
+        { id: 'hero-manage', label: '히어로 관리', icon: Eye },
+        { id: 'benefit-manage', label: '혜택 관리', icon: FileText },
+        { id: 'gotm-manage', label: '이달의 갤러리', icon: Star },
+      ];
+
+  return (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="max-w-4xl mx-auto px-4 py-6">
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-2xl font-bold">마이페이지</h1>
+        <button onClick={handleLogout} className="flex items-center gap-1 text-sm text-red-500 hover:text-red-600">
+          <LogOut size={16} /> 로그아웃
+        </button>
+      </div>
+
+      {/* 프로필 카드 */}
+      <ProfileCard />
+
+      {/* 탭 메뉴 */}
+      <div className="flex gap-1 overflow-x-auto pb-2 mb-6 border-b border-gray-100 scrollbar-hide">
+        {tabs.map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
+            className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-t-lg whitespace-nowrap transition-colors ${
+              activeTab === tab.id ? 'text-gray-900 border-b-2 border-gray-900' : 'text-gray-400 hover:text-gray-600'
+            }`}
+          >
+            <tab.icon size={14} /> {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* 탭 콘텐츠 */}
+      {activeTab === 'profile' && <ProfileSection />}
+      {activeTab === 'portfolio' && user.role === 'ARTIST' && <PortfolioSection />}
+      {activeTab === 'favorites' && user.role === 'ARTIST' && <FavoritesSection />}
+      {activeTab === 'reviews' && user.role === 'ARTIST' && <MyReviewsSection />}
+      {activeTab === 'applications' && user.role === 'ARTIST' && <ApplicationsSection />}
+      {activeTab === 'my-galleries' && user.role === 'GALLERY' && <MyGalleriesSection />}
+      {activeTab === 'my-exhibitions' && user.role === 'GALLERY' && <MyExhibitionsSection />}
+      {activeTab === 'approvals' && user.role === 'ADMIN' && <ApprovalsSection />}
+      {activeTab === 'hero-manage' && user.role === 'ADMIN' && <HeroManageSection />}
+      {activeTab === 'benefit-manage' && user.role === 'ADMIN' && <BenefitManageSection />}
+      {activeTab === 'gotm-manage' && user.role === 'ADMIN' && <GotmManageSection />}
+    </motion.div>
+  );
+}
+
+// ========== 프로필 카드 (프로필 사진 변경 포함) ==========
+function ProfileCard() {
+  const { user, updateUser } = useAuthStore();
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+
+  const handleAvatarUpload = async (file: File) => {
+    setUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append('image', file);
+      const uploadRes = await api.post('/upload/image', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      const avatarUrl = uploadRes.data.url;
+      await api.put('/auth/me/avatar', { avatar: avatarUrl });
+      updateUser({ avatar: avatarUrl });
+      toast.success('프로필 사진이 변경되었습니다.');
+    } catch {
+      toast.error('프로필 사진 변경에 실패했습니다.');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  return (
+    <div className="bg-gray-50 rounded-2xl p-6 mb-6">
+      <div className="flex items-center gap-4">
+        <div className="relative group">
+          <div className="w-16 h-16 bg-gray-200 rounded-full flex items-center justify-center text-2xl font-bold text-gray-400 overflow-hidden">
+            {user?.avatar ? (
+              <img src={user.avatar} alt="" className="w-full h-full object-cover" />
+            ) : (
+              user?.name?.charAt(0)
+            )}
+          </div>
+          <button
+            onClick={() => inputRef.current?.click()}
+            disabled={uploading}
+            className="absolute inset-0 bg-black/40 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+          >
+            <Camera size={18} className="text-white" />
+          </button>
+          <input
+            ref={inputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) handleAvatarUpload(file);
+              e.target.value = '';
+            }}
+          />
+        </div>
+        <div>
+          <h2 className="text-lg font-semibold">{user?.name}</h2>
+          <p className="text-sm text-gray-500">{user?.email}</p>
+          <span className="inline-block mt-1 px-2 py-0.5 text-xs rounded-full bg-gray-200 text-gray-600">{user?.role}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ========== 프로필 섹션 ==========
+function ProfileSection() {
+  return (
+    <div className="text-center py-8 text-gray-500">
+      <p>프로필 카드 위 사진을 클릭하여 프로필 사진을 변경할 수 있습니다.</p>
+    </div>
+  );
+}
+
+// ========== Artist: 포트폴리오 관리 ==========
+function PortfolioSection() {
+  const queryClient = useQueryClient();
+  const { data: portfolio, isLoading } = useQuery<Portfolio>({
+    queryKey: ['portfolio'],
+    queryFn: () => api.get('/portfolio').then(r => r.data),
+  });
+
+  const [biography, setBiography] = useState('');
+  const [exhibitionHistory, setExhibitionHistory] = useState('');
+  const [editing, setEditing] = useState(false);
+
+  const mutation = useMutation({
+    mutationFn: (data: { biography: string; exhibitionHistory: string }) => api.put('/portfolio', data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['portfolio'] });
+      setEditing(false);
+      toast.success('포트폴리오가 저장되었습니다.');
+    },
+  });
+
+  // 포트폴리오 이미지 추가
+  const addImageMutation = useMutation({
+    mutationFn: (url: string) => api.post('/portfolio/images', { url }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['portfolio'] });
+      toast.success('작품 사진이 추가되었습니다.');
+    },
+    onError: (err: any) => toast.error(err.response?.data?.error || '이미지 추가 실패'),
+  });
+
+  // 포트폴리오 이미지 삭제
+  const removeImageMutation = useMutation({
+    mutationFn: (imageId: number) => api.delete(`/portfolio/images/${imageId}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['portfolio'] });
+      toast.success('작품 사진이 삭제되었습니다.');
+    },
+  });
+
+  if (isLoading) return <div className="h-32 bg-gray-100 rounded-xl animate-pulse" />;
+
+  const startEdit = () => {
+    setBiography(portfolio?.biography || '');
+    setExhibitionHistory(portfolio?.exhibitionHistory || '');
+    setEditing(true);
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <h3 className="font-semibold">포트폴리오</h3>
+        {!editing && <button onClick={startEdit} className="text-sm text-blue-500">수정</button>}
+      </div>
+
+      {editing ? (
+        <div className="space-y-4">
+          <div>
+            <label className="text-sm font-medium text-gray-700">작가 약력</label>
+            <textarea value={biography} onChange={e => setBiography(e.target.value)} className="w-full h-24 p-3 mt-1 border border-gray-200 rounded-lg text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+          <div>
+            <label className="text-sm font-medium text-gray-700">전시 참가 이력</label>
+            <textarea value={exhibitionHistory} onChange={e => setExhibitionHistory(e.target.value)} className="w-full h-24 p-3 mt-1 border border-gray-200 rounded-lg text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+          <div className="flex gap-2">
+            <button onClick={() => mutation.mutate({ biography, exhibitionHistory })} className="px-4 py-2 bg-gray-900 text-white text-sm rounded-lg">저장</button>
+            <button onClick={() => setEditing(false)} className="px-4 py-2 text-sm text-gray-500">취소</button>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          <div>
+            <p className="text-sm font-medium text-gray-500">작가 약력</p>
+            <p className="text-sm text-gray-700 whitespace-pre-wrap mt-1">{portfolio?.biography || '등록된 약력이 없습니다.'}</p>
+          </div>
+          <div>
+            <p className="text-sm font-medium text-gray-500">전시 참가 이력</p>
+            <p className="text-sm text-gray-700 whitespace-pre-wrap mt-1">{portfolio?.exhibitionHistory || '등록된 이력이 없습니다.'}</p>
+          </div>
+        </div>
+      )}
+
+      {/* 작품 사진 관리 */}
+      <div>
+        <p className="text-sm font-medium text-gray-500 mb-2">작품 사진 ({portfolio?.images?.length || 0}/30)</p>
+        <MultiImageUpload
+          images={portfolio?.images || []}
+          onAdd={(url) => addImageMutation.mutate(url)}
+          onRemove={(index) => {
+            const img = portfolio?.images?.[index];
+            if (img?.id) removeImageMutation.mutate(img.id);
+          }}
+          maxCount={30}
+        />
+      </div>
+    </div>
+  );
+}
+
+// ========== Artist: 찜 목록 ==========
+function FavoritesSection() {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [filter, setFilter] = useState<'all' | 'gallery' | 'exhibition'>('all');
+
+  const { data: favorites = [] } = useQuery<Favorite[]>({
+    queryKey: ['favorites'],
+    queryFn: () => api.get('/favorites').then(r => r.data),
+  });
+
+  const removeFav = useMutation({
+    mutationFn: (data: { galleryId?: number; exhibitionId?: number }) => api.post('/favorites/toggle', data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['favorites'] });
+      toast.success('찜이 해제되었습니다.');
+    },
+  });
+
+  const filtered = favorites.filter(f => {
+    if (filter === 'gallery') return !!f.galleryId;
+    if (filter === 'exhibition') return !!f.exhibitionId;
+    return true;
+  });
+
+  return (
+    <div>
+      <div className="flex gap-2 mb-4">
+        {(['all', 'gallery', 'exhibition'] as const).map(f => (
+          <button key={f} onClick={() => setFilter(f)}
+            className={`px-3 py-1.5 text-sm rounded-full ${filter === f ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-600'}`}>
+            {f === 'all' ? '전체' : f === 'gallery' ? '갤러리' : '공모'}
+          </button>
+        ))}
+      </div>
+
+      {filtered.length === 0 ? (
+        <p className="text-gray-400 text-center py-8">찜한 항목이 없습니다.</p>
+      ) : (
+        <div className="space-y-2">
+          {filtered.map(fav => (
+            <div key={fav.id} className="flex justify-between items-center p-3 border border-gray-100 rounded-lg">
+              <button
+                onClick={() => {
+                  if (fav.galleryId) navigate(`/galleries/${fav.galleryId}`);
+                }}
+                className="text-sm font-medium text-left hover:text-blue-500"
+              >
+                {fav.gallery ? fav.gallery.name : fav.exhibition ? `${fav.exhibition.gallery.name} - ${fav.exhibition.title}` : ''}
+              </button>
+              <button
+                onClick={() => removeFav.mutate({ galleryId: fav.galleryId || undefined, exhibitionId: fav.exhibitionId || undefined })}
+                className="p-1 text-gray-400 hover:text-red-500"
+              >
+                <X size={16} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ========== Artist: 내 리뷰 ==========
+function MyReviewsSection() {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const { data: reviews = [] } = useQuery<any[]>({
+    queryKey: ['my-reviews'],
+    queryFn: () => api.get('/reviews/my').then(r => r.data),
+  });
+
+  const deleteReviewMutation = useMutation({
+    mutationFn: (id: number) => api.delete(`/reviews/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['my-reviews'] });
+      toast.success('리뷰가 삭제되었습니다.');
+    },
+    onError: () => toast.error('리뷰 삭제에 실패했습니다.'),
+  });
+
+  return reviews.length === 0 ? (
+    <p className="text-gray-400 text-center py-8">작성한 리뷰가 없습니다.</p>
+  ) : (
+    <div className="space-y-3">
+      {reviews.map((r: any) => (
+        <div key={r.id} className="p-4 border border-gray-100 rounded-xl">
+          <div className="flex justify-between items-start">
+            <div>
+              <button onClick={() => navigate(`/galleries/${r.galleryId}`)} className="text-sm font-medium text-blue-500 hover:underline">
+                {r.gallery?.name}
+              </button>
+              <div className="flex gap-0.5 mt-1">
+                {[1,2,3,4,5].map(s => <Star key={s} size={12} className={s <= r.rating ? 'text-yellow-400 fill-yellow-400' : 'text-gray-200'} />)}
+              </div>
+            </div>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => navigate(`/galleries/${r.galleryId}`)}
+                className="p-1 text-gray-400 hover:text-blue-500"
+                title="갤러리에서 수정"
+              >
+                <Edit3 size={14} />
+              </button>
+              <button
+                onClick={() => { if (window.confirm('이 리뷰를 삭제하시겠습니까?')) deleteReviewMutation.mutate(r.id); }}
+                className="p-1 text-gray-400 hover:text-red-500"
+                title="삭제"
+              >
+                <Trash2 size={14} />
+              </button>
+            </div>
+          </div>
+          <p className="text-sm text-gray-700 mt-1">{r.content}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ========== Artist: 지원 내역 ==========
+function ApplicationsSection() {
+  const { data: apps = [], isLoading, isError } = useQuery<any[]>({
+    queryKey: ['my-applications'],
+    queryFn: () => api.get('/exhibitions/my-applications').then(r => r.data),
+  });
+
+  if (isError) {
+    return <p className="text-red-400 text-center py-8">지원 내역을 불러오는 중 오류가 발생했습니다.</p>;
+  }
+
+  if (isLoading) return <div className="h-32 bg-gray-100 rounded-xl animate-pulse" />;
+
+  return apps.length === 0 ? (
+    <p className="text-gray-400 text-center py-8">지원한 공고가 없습니다.</p>
+  ) : (
+    <div className="space-y-3">
+      {apps.map((app: any) => (
+        <div key={app.id} className="p-4 border border-gray-100 rounded-xl">
+          <div className="flex justify-between items-start">
+            <div>
+              <h4 className="font-medium text-sm">{app.exhibition?.title}</h4>
+              <p className="text-xs text-gray-500 mt-1">{app.exhibition?.gallery?.name}</p>
+            </div>
+            <span className="text-xs text-gray-400">
+              {new Date(app.createdAt).toLocaleDateString('ko')}
+            </span>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ========== Gallery: 내 갤러리 ==========
+function MyGalleriesSection() {
+  const queryClient = useQueryClient();
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState({ name: '', address: '', phone: '', description: '', region: 'SEOUL', ownerName: '', mainImage: '' });
+
+  const { data: galleries = [] } = useQuery<any[]>({
+    queryKey: ['my-galleries'],
+    queryFn: () => api.get('/galleries?owned=true').then(r => r.data).catch(() => []),
+  });
+
+  const createMutation = useMutation({
+    mutationFn: (data: typeof form) => api.post('/galleries', data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['my-galleries'] });
+      setShowForm(false);
+      setForm({ name: '', address: '', phone: '', description: '', region: 'SEOUL', ownerName: '', mainImage: '' });
+      toast.success('갤러리 등록 요청이 제출되었습니다.');
+    },
+    onError: (err: any) => toast.error(err.response?.data?.error || '등록 실패'),
+  });
+
+  const statusColors: Record<string, string> = { PENDING: 'bg-yellow-100 text-yellow-700', APPROVED: 'bg-green-100 text-green-700', REJECTED: 'bg-red-100 text-red-700' };
+  const statusLabels: Record<string, string> = { PENDING: '승인 대기', APPROVED: '승인 완료', REJECTED: '승인 거절' };
+
+  return (
+    <div>
+      <div className="flex justify-between items-center mb-4">
+        <p className="text-sm text-gray-400">Admin 승인 후 검색에 노출됩니다.</p>
+        <button onClick={() => setShowForm(!showForm)} className="flex items-center gap-1 text-sm px-3 py-1.5 bg-gray-900 text-white rounded-lg">
+          <Plus size={14} /> 갤러리 등록
+        </button>
+      </div>
+
+      {/* 등록 폼 */}
+      {showForm && (
+        <div className="mb-6 p-4 bg-gray-50 rounded-xl space-y-3">
+          <h4 className="font-medium text-sm">갤러리 등록 요청</h4>
+          <div className="grid grid-cols-2 gap-3">
+            <input placeholder="갤러리명 *" value={form.name} onChange={e => setForm({...form, name: e.target.value})} className="col-span-2 p-2.5 border border-gray-200 rounded-lg text-sm" />
+            <input placeholder="주소 *" value={form.address} onChange={e => setForm({...form, address: e.target.value})} className="col-span-2 p-2.5 border border-gray-200 rounded-lg text-sm" />
+            <input placeholder="대표자명 *" value={form.ownerName} onChange={e => setForm({...form, ownerName: e.target.value})} className="p-2.5 border border-gray-200 rounded-lg text-sm" />
+            <input placeholder="전화번호 *" value={form.phone} onChange={e => setForm({...form, phone: e.target.value})} className="p-2.5 border border-gray-200 rounded-lg text-sm" />
+            <select value={form.region} onChange={e => setForm({...form, region: e.target.value})} className="col-span-2 p-2.5 border border-gray-200 rounded-lg text-sm">
+              {regions.map(r => <option key={r} value={r}>{regionLabels[r]}</option>)}
+            </select>
+            <textarea placeholder="한줄 소개 *" value={form.description} onChange={e => setForm({...form, description: e.target.value})} className="col-span-2 p-2.5 border border-gray-200 rounded-lg text-sm h-20 resize-none" />
+          </div>
+          <ImageUpload value={form.mainImage} onChange={(url) => setForm({...form, mainImage: url})} onRemove={() => setForm({...form, mainImage: ''})} placeholder="대표 이미지 업로드" />
+          <div className="flex gap-2">
+            <button
+              onClick={() => {
+                if (!form.name || !form.address || !form.phone || !form.description || !form.ownerName) {
+                  toast.error('필수 항목을 모두 입력해주세요.'); return;
+                }
+                createMutation.mutate(form);
+              }}
+              className="px-4 py-2 bg-gray-900 text-white text-sm rounded-lg"
+            >등록 요청</button>
+            <button onClick={() => setShowForm(false)} className="px-4 py-2 text-sm text-gray-500">취소</button>
+          </div>
+        </div>
+      )}
+
+      {/* 갤러리 목록 */}
+      {galleries.length === 0 && !showForm ? (
+        <p className="text-gray-400 text-center py-8">등록된 갤러리가 없습니다.</p>
+      ) : (
+        <div className="space-y-3">
+          {galleries.map((g: any) => (
+            <div key={g.id} className="p-4 border border-gray-100 rounded-xl">
+              <div className="flex justify-between items-start">
+                <div>
+                  <h3 className="font-medium">{g.name}</h3>
+                  <p className="text-sm text-gray-500">{g.address}</p>
+                </div>
+                <span className={`px-2 py-0.5 text-xs rounded-full ${statusColors[g.status] || ''}`}>
+                  {statusLabels[g.status] || g.status}
+                </span>
+              </div>
+              {g.status === 'REJECTED' && g.rejectReason && (
+                <p className="text-sm text-red-500 mt-2">거절 사유: {g.rejectReason}</p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ========== Gallery: 내 공모 ==========
+function MyExhibitionsSection() {
+  const queryClient = useQueryClient();
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState({ galleryId: 0, title: '', type: 'SOLO', deadline: '', exhibitDate: '', capacity: 1, region: 'SEOUL', description: '' });
+
+  // 내 갤러리 목록 (승인된 것만 공모 등록 가능)
+  const { data: myGalleries = [] } = useQuery<any[]>({
+    queryKey: ['my-galleries'],
+    queryFn: () => api.get('/galleries?owned=true').then(r => r.data).catch(() => []),
+  });
+  const approvedGalleries = myGalleries.filter((g: any) => g.status === 'APPROVED');
+
+  // 내 공모 목록
+  const { data: exhibitions = [] } = useQuery<any[]>({
+    queryKey: ['my-exhibitions'],
+    queryFn: () => api.get('/exhibitions/my-exhibitions').then(r => r.data).catch(() => []),
+  });
+
+  const createMutation = useMutation({
+    mutationFn: (data: typeof form) => api.post('/exhibitions', data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['my-exhibitions'] });
+      setShowForm(false);
+      toast.success('공모 등록 요청이 제출되었습니다.');
+    },
+    onError: (err: any) => toast.error(err.response?.data?.error || '등록 실패'),
+  });
+
+  // 공모 삭제
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => api.delete(`/exhibitions/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['my-exhibitions'] });
+      queryClient.invalidateQueries({ queryKey: ['exhibitions'] });
+      toast.success('공모가 삭제되었습니다.');
+    },
+    onError: (err: any) => toast.error(err.response?.data?.error || '삭제 실패'),
+  });
+
+  const handleDeleteExhibition = (id: number) => {
+    if (window.confirm('정말 이 공모를 삭제하시겠습니까?')) {
+      deleteMutation.mutate(id);
+    }
+  };
+
+  const statusColors: Record<string, string> = { PENDING: 'bg-yellow-100 text-yellow-700', APPROVED: 'bg-green-100 text-green-700', REJECTED: 'bg-red-100 text-red-700' };
+  const statusLabels: Record<string, string> = { PENDING: '승인 대기', APPROVED: '승인 완료', REJECTED: '승인 거절' };
+
+  return (
+    <div>
+      <div className="flex justify-between items-center mb-4">
+        <p className="text-sm text-gray-400">Admin 승인 후 공고에 노출됩니다.</p>
+        <button onClick={() => setShowForm(!showForm)} className="flex items-center gap-1 text-sm px-3 py-1.5 bg-gray-900 text-white rounded-lg">
+          <Plus size={14} /> 공모 등록
+        </button>
+      </div>
+
+      {showForm && (
+        <div className="mb-6 p-4 bg-gray-50 rounded-xl space-y-3">
+          <h4 className="font-medium text-sm">공모 등록 요청</h4>
+          {approvedGalleries.length === 0 ? (
+            <p className="text-sm text-red-500">승인된 갤러리가 없습니다. 먼저 갤러리를 등록해주세요.</p>
+          ) : (
+            <>
+              <select value={form.galleryId} onChange={e => setForm({...form, galleryId: Number(e.target.value)})} className="w-full p-2.5 border border-gray-200 rounded-lg text-sm">
+                <option value={0}>갤러리 선택 *</option>
+                {approvedGalleries.map((g: any) => <option key={g.id} value={g.id}>{g.name}</option>)}
+              </select>
+              <input placeholder="공모 제목 *" value={form.title} onChange={e => setForm({...form, title: e.target.value})} className="w-full p-2.5 border border-gray-200 rounded-lg text-sm" />
+              <div className="grid grid-cols-2 gap-3">
+                <select value={form.type} onChange={e => setForm({...form, type: e.target.value})} className="p-2.5 border border-gray-200 rounded-lg text-sm">
+                  <option value="SOLO">개인전</option>
+                  <option value="ART_FAIR">아트페어</option>
+                </select>
+                <input type="number" placeholder="모집인원" min={1} value={form.capacity} onChange={e => setForm({...form, capacity: Number(e.target.value)})} className="p-2.5 border border-gray-200 rounded-lg text-sm" />
+                <div>
+                  <label className="text-xs text-gray-500">공모 마감일</label>
+                  <input type="date" value={form.deadline} onChange={e => setForm({...form, deadline: e.target.value})} className="w-full p-2.5 border border-gray-200 rounded-lg text-sm" />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500">전시일</label>
+                  <input type="date" value={form.exhibitDate} onChange={e => setForm({...form, exhibitDate: e.target.value})} className="w-full p-2.5 border border-gray-200 rounded-lg text-sm" />
+                </div>
+              </div>
+              <select value={form.region} onChange={e => setForm({...form, region: e.target.value})} className="w-full p-2.5 border border-gray-200 rounded-lg text-sm">
+                {regions.map(r => <option key={r} value={r}>{regionLabels[r]}</option>)}
+              </select>
+              <textarea placeholder="간단 소개 *" value={form.description} onChange={e => setForm({...form, description: e.target.value})} className="w-full p-2.5 border border-gray-200 rounded-lg text-sm h-20 resize-none" />
+              <div className="flex gap-2">
+                <button
+                  onClick={() => {
+                    if (!form.galleryId || !form.title || !form.deadline || !form.exhibitDate || !form.description) {
+                      toast.error('필수 항목을 모두 입력해주세요.'); return;
+                    }
+                    createMutation.mutate(form);
+                  }}
+                  className="px-4 py-2 bg-gray-900 text-white text-sm rounded-lg"
+                >등록 요청</button>
+                <button onClick={() => setShowForm(false)} className="px-4 py-2 text-sm text-gray-500">취소</button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {exhibitions.length === 0 && !showForm ? (
+        <p className="text-gray-400 text-center py-8">등록된 공모가 없습니다.</p>
+      ) : (
+        <div className="space-y-3">
+          {exhibitions.map((ex: any) => (
+            <div key={ex.id} className="p-4 border border-gray-100 rounded-xl">
+              <div className="flex justify-between items-start">
+                <div>
+                  <h3 className="font-medium">{ex.title}</h3>
+                  <p className="text-sm text-gray-500">{ex.gallery?.name} · {exhibitionTypeLabels[ex.type]} · {regionLabels[ex.region]}</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className={`px-2 py-0.5 text-xs rounded-full ${statusColors[ex.status] || ''}`}>
+                    {statusLabels[ex.status] || ex.status}
+                  </span>
+                  <button
+                    onClick={() => handleDeleteExhibition(ex.id)}
+                    className="p-1 text-gray-400 hover:text-red-500"
+                    title="공모 삭제"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              </div>
+              {ex.status === 'REJECTED' && ex.rejectReason && (
+                <p className="text-sm text-red-500 mt-2">거절 사유: {ex.rejectReason}</p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ========== Admin: 승인 관리 ==========
+function ApprovalsSection() {
+  const queryClient = useQueryClient();
+  // 모든 useState/useQuery/useMutation 훅은 조건부 return 전에 선언 (React 훅 규칙)
+  const [rejectReason, setRejectReason] = useState('');
+  const [rejectingId, setRejectingId] = useState<{ type: string; id: number } | null>(null);
+  const [adminTab, setAdminTab] = useState<'pending' | 'manage'>('pending');
+
+  const { data, isLoading } = useQuery<{ pendingGalleries: any[]; pendingExhibitions: any[]; pendingRequests: any[] }>({
+    queryKey: ['approvals'],
+    queryFn: () => api.get('/approvals').then(r => r.data),
+    staleTime: 0, // 승인 큐는 항상 최신 데이터 사용
+    refetchOnMount: 'always', // 탭 전환 시에도 반드시 refetch
+  });
+
+  // 승인된 갤러리/공모 조회 (Admin 삭제용)
+  const { data: allGalleries = [] } = useQuery<any[]>({
+    queryKey: ['admin-all-galleries'],
+    queryFn: () => api.get('/galleries').then(r => r.data),
+  });
+
+  const { data: allExhibitions = [] } = useQuery<any[]>({
+    queryKey: ['admin-all-exhibitions'],
+    queryFn: () => api.get('/exhibitions').then(r => r.data),
+  });
+
+  const invalidateAllRelated = () => {
+    queryClient.invalidateQueries({ queryKey: ['approvals'] });
+    queryClient.invalidateQueries({ queryKey: ['my-galleries'] });
+    queryClient.invalidateQueries({ queryKey: ['galleries'] });
+    queryClient.invalidateQueries({ queryKey: ['my-exhibitions'] });
+    queryClient.invalidateQueries({ queryKey: ['exhibitions'] });
+    queryClient.invalidateQueries({ queryKey: ['admin-all-galleries'] });
+    queryClient.invalidateQueries({ queryKey: ['admin-all-exhibitions'] });
+  };
+
+  const approveMutation = useMutation({
+    mutationFn: ({ type, id }: { type: string; id: number }) =>
+      api.patch(`/approvals/${type}/${id}`, { status: 'APPROVED' }),
+    onSuccess: () => {
+      invalidateAllRelated();
+      toast.success('승인되었습니다.');
+    },
+  });
+
+  const rejectMutation = useMutation({
+    mutationFn: ({ type, id, reason }: { type: string; id: number; reason: string }) =>
+      api.patch(`/approvals/${type}/${id}`, { status: 'REJECTED', rejectReason: reason }),
+    onSuccess: () => {
+      invalidateAllRelated();
+      setRejectingId(null);
+      setRejectReason('');
+      toast.success('거절되었습니다.');
+    },
+  });
+
+  // Admin: 갤러리 삭제
+  const deleteGalleryMutation = useMutation({
+    mutationFn: (id: number) => api.delete(`/galleries/${id}`),
+    onSuccess: () => {
+      invalidateAllRelated();
+      toast.success('갤러리가 삭제되었습니다.');
+    },
+    onError: (err: any) => toast.error(err.response?.data?.error || '삭제 실패'),
+  });
+
+  // Admin: 공모 삭제
+  const deleteExhibitionMutation = useMutation({
+    mutationFn: (id: number) => api.delete(`/exhibitions/${id}`),
+    onSuccess: () => {
+      invalidateAllRelated();
+      toast.success('공모가 삭제되었습니다.');
+    },
+    onError: (err: any) => toast.error(err.response?.data?.error || '삭제 실패'),
+  });
+
+  // 로딩 상태 (모든 훅 선언 후에 조건부 return)
+  if (isLoading) return <div className="h-32 bg-gray-100 rounded-xl animate-pulse" />;
+
+  const allPending = [
+    ...(data?.pendingGalleries?.map(g => ({ ...g, _type: 'gallery' })) || []),
+    ...(data?.pendingExhibitions?.map(e => ({ ...e, _type: 'exhibition' })) || []),
+  ];
+
+  return (
+    <div>
+      {/* Admin 서브탭 */}
+      <div className="flex gap-2 mb-4">
+        <button onClick={() => setAdminTab('pending')} className={`px-3 py-1.5 text-sm rounded-full ${adminTab === 'pending' ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-600'}`}>
+          승인 대기 ({allPending.length})
+        </button>
+        <button onClick={() => setAdminTab('manage')} className={`px-3 py-1.5 text-sm rounded-full ${adminTab === 'manage' ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-600'}`}>
+          등록 관리
+        </button>
+      </div>
+
+      {/* 등록 관리 탭 - 승인된 갤러리/공모 삭제 */}
+      {adminTab === 'manage' && (
+        <div className="space-y-6">
+          <div>
+            <h4 className="font-medium text-sm mb-2 text-gray-700">등록된 갤러리 ({allGalleries.length})</h4>
+            {allGalleries.length === 0 ? (
+              <p className="text-gray-400 text-center py-4 text-sm">등록된 갤러리가 없습니다.</p>
+            ) : (
+              <div className="space-y-2">
+                {allGalleries.map((g: any) => (
+                  <div key={g.id} className="flex justify-between items-center p-3 border border-gray-100 rounded-lg">
+                    <div>
+                      <p className="text-sm font-medium">{g.name}</p>
+                      <p className="text-xs text-gray-500">{g.address} · {regionLabels[g.region]}</p>
+                    </div>
+                    <button
+                      onClick={() => {
+                        if (window.confirm(`"${g.name}" 갤러리를 삭제하시겠습니까? 관련 공모, 리뷰 등 모든 데이터가 삭제됩니다.`)) {
+                          deleteGalleryMutation.mutate(g.id);
+                        }
+                      }}
+                      className="p-1.5 text-gray-400 hover:text-red-500"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <div>
+            <h4 className="font-medium text-sm mb-2 text-gray-700">진행중인 공모 ({allExhibitions.length})</h4>
+            {allExhibitions.length === 0 ? (
+              <p className="text-gray-400 text-center py-4 text-sm">진행중인 공모가 없습니다.</p>
+            ) : (
+              <div className="space-y-2">
+                {allExhibitions.map((ex: any) => (
+                  <div key={ex.id} className="flex justify-between items-center p-3 border border-gray-100 rounded-lg">
+                    <div>
+                      <p className="text-sm font-medium">{ex.title}</p>
+                      <p className="text-xs text-gray-500">{ex.gallery?.name} · {exhibitionTypeLabels[ex.type]}</p>
+                    </div>
+                    <button
+                      onClick={() => {
+                        if (window.confirm(`"${ex.title}" 공모를 삭제하시겠습니까?`)) {
+                          deleteExhibitionMutation.mutate(ex.id);
+                        }
+                      }}
+                      className="p-1.5 text-gray-400 hover:text-red-500"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {adminTab === 'pending' && <>
+      <h3 className="font-semibold mb-4">승인 대기 목록 ({allPending.length})</h3>
+      {allPending.length === 0 ? (
+        <p className="text-gray-400 text-center py-8">대기중인 승인 요청이 없습니다.</p>
+      ) : (
+        <div className="space-y-3">
+          {allPending.map(item => (
+            <div key={`${item._type}-${item.id}`} className="p-4 border border-gray-100 rounded-xl">
+              <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">
+                {item._type === 'gallery' ? '갤러리' : '공모'}
+              </span>
+              <h4 className="font-medium mt-1">{item.name || item.title}</h4>
+              {item._type === 'gallery' && <p className="text-sm text-gray-500">{item.address} · {item.phone} · {item.ownerName}</p>}
+              {item._type === 'exhibition' && <p className="text-sm text-gray-500">{item.gallery?.name} · {exhibitionTypeLabels[item.type]}</p>}
+              {item.description && <p className="text-sm text-gray-600 mt-1">{item.description}</p>}
+
+              {rejectingId?.type === item._type && rejectingId?.id === item.id ? (
+                <div className="mt-3 space-y-2">
+                  <textarea value={rejectReason} onChange={e => setRejectReason(e.target.value)} placeholder="거절 사유를 입력하세요 (필수)" className="w-full h-20 p-2 border border-gray-200 rounded-lg text-sm resize-none" />
+                  <div className="flex gap-2">
+                    <button onClick={() => rejectMutation.mutate({ type: item._type, id: item.id, reason: rejectReason })} disabled={!rejectReason.trim()} className="px-3 py-1.5 bg-red-500 text-white text-sm rounded-lg disabled:opacity-50">거절 확인</button>
+                    <button onClick={() => setRejectingId(null)} className="px-3 py-1.5 text-sm text-gray-500">취소</button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex gap-2 mt-3">
+                  <button onClick={() => approveMutation.mutate({ type: item._type, id: item.id })} className="px-3 py-1.5 bg-green-500 text-white text-sm rounded-lg flex items-center gap-1"><Check size={14} /> 승인</button>
+                  <button onClick={() => setRejectingId({ type: item._type, id: item.id })} className="px-3 py-1.5 bg-red-50 text-red-500 text-sm rounded-lg flex items-center gap-1"><XCircle size={14} /> 거절</button>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+      </>}
+    </div>
+  );
+}
+
+// ========== Admin: 히어로 슬라이드 관리 ==========
+function HeroManageSection() {
+  const queryClient = useQueryClient();
+  const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [form, setForm] = useState({ title: '', description: '', imageUrl: '', linkUrl: '', order: 0 });
+  const [preview, setPreview] = useState(false);
+
+  const { data: slides = [] } = useQuery<any[]>({
+    queryKey: ['hero-slides'],
+    queryFn: () => api.get('/hero-slides').then(r => r.data),
+  });
+
+  const createMutation = useMutation({
+    mutationFn: () => api.post('/hero-slides', form),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['hero-slides'] });
+      resetForm();
+      toast.success('슬라이드가 등록되었습니다.');
+    },
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: () => api.patch(`/hero-slides/${editingId}`, form),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['hero-slides'] });
+      resetForm();
+      toast.success('슬라이드가 수정되었습니다.');
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => api.delete(`/hero-slides/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['hero-slides'] });
+      toast.success('슬라이드가 삭제되었습니다.');
+    },
+  });
+
+  const resetForm = () => {
+    setShowForm(false);
+    setEditingId(null);
+    setForm({ title: '', description: '', imageUrl: '', linkUrl: '', order: 0 });
+    setPreview(false);
+  };
+
+  const startEdit = (s: any) => {
+    setForm({ title: s.title, description: s.description || '', imageUrl: s.imageUrl, linkUrl: s.linkUrl || '', order: s.order });
+    setEditingId(s.id);
+    setShowForm(true);
+  };
+
+  return (
+    <div>
+      <div className="flex justify-between items-center mb-4">
+        <h3 className="font-semibold">히어로 슬라이드 ({slides.length}개)</h3>
+        <button onClick={() => { resetForm(); setShowForm(true); }} className="flex items-center gap-1 text-sm px-3 py-1.5 bg-gray-900 text-white rounded-lg">
+          <Plus size={14} /> 새 슬라이드
+        </button>
+      </div>
+
+      {/* 등록/수정 폼 */}
+      {showForm && (
+        <div className="mb-6 p-4 bg-gray-50 rounded-xl space-y-3">
+          <h4 className="font-medium text-sm">{editingId ? '슬라이드 수정' : '새 슬라이드 등록'}</h4>
+          <input placeholder="제목 *" value={form.title} onChange={e => setForm({...form, title: e.target.value})} className="w-full p-2.5 border border-gray-200 rounded-lg text-sm" />
+          <input placeholder="설명" value={form.description} onChange={e => setForm({...form, description: e.target.value})} className="w-full p-2.5 border border-gray-200 rounded-lg text-sm" />
+          <input placeholder="링크 URL (선택)" value={form.linkUrl} onChange={e => setForm({...form, linkUrl: e.target.value})} className="w-full p-2.5 border border-gray-200 rounded-lg text-sm" />
+          <input type="number" placeholder="순서" value={form.order} onChange={e => setForm({...form, order: Number(e.target.value)})} className="w-full p-2.5 border border-gray-200 rounded-lg text-sm" />
+          <ImageUpload value={form.imageUrl} onChange={(url) => setForm({...form, imageUrl: url})} onRemove={() => setForm({...form, imageUrl: ''})} placeholder="슬라이드 이미지 업로드" />
+
+          {/* 미리보기 */}
+          <button onClick={() => setPreview(!preview)} className="flex items-center gap-1 text-sm text-blue-500">
+            <Eye size={14} /> {preview ? '미리보기 닫기' : '미리보기'}
+          </button>
+          {preview && form.imageUrl && (
+            <div className="relative w-full h-40 rounded-lg overflow-hidden">
+              <img src={form.imageUrl} alt="" className="w-full h-full object-cover" />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
+              <div className="absolute bottom-3 left-3">
+                <p className="text-white font-bold text-sm">{form.title || '제목'}</p>
+                <p className="text-white/70 text-xs">{form.description || '설명'}</p>
+              </div>
+              {form.linkUrl && <span className="absolute bottom-3 right-3 text-xs bg-white text-gray-900 px-2 py-1 rounded">바로가기 →</span>}
+            </div>
+          )}
+
+          <div className="flex gap-2">
+            <button
+              onClick={() => {
+                if (!form.title || !form.imageUrl) { toast.error('제목과 이미지는 필수입니다.'); return; }
+                editingId ? updateMutation.mutate() : createMutation.mutate();
+              }}
+              className="px-4 py-2 bg-gray-900 text-white text-sm rounded-lg"
+            >{editingId ? '수정' : '등록'}</button>
+            <button onClick={resetForm} className="px-4 py-2 text-sm text-gray-500">취소</button>
+          </div>
+        </div>
+      )}
+
+      {/* 슬라이드 목록 */}
+      <div className="space-y-3">
+        {slides.map((s: any) => (
+          <div key={s.id} className="flex gap-3 p-3 border border-gray-100 rounded-xl items-center">
+            <img src={s.imageUrl} alt="" className="w-20 h-14 object-cover rounded-lg flex-none" />
+            <div className="flex-1 min-w-0">
+              <p className="font-medium text-sm truncate">{s.title}</p>
+              <p className="text-xs text-gray-500 truncate">{s.description}</p>
+            </div>
+            <div className="flex gap-1 flex-none">
+              <button onClick={() => startEdit(s)} className="p-1.5 text-gray-400 hover:text-blue-500"><Edit3 size={14} /></button>
+              <button onClick={() => deleteMutation.mutate(s.id)} className="p-1.5 text-gray-400 hover:text-red-500"><Trash2 size={14} /></button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ========== Admin: 혜택 관리 ==========
+function BenefitManageSection() {
+  const queryClient = useQueryClient();
+  const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [form, setForm] = useState({ title: '', description: '', imageUrl: '', linkUrl: '' });
+  const [preview, setPreview] = useState(false);
+
+  const { data: benefits = [] } = useQuery<any[]>({
+    queryKey: ['benefits'],
+    queryFn: () => api.get('/benefits').then(r => r.data),
+  });
+
+  const createMutation = useMutation({
+    mutationFn: () => api.post('/benefits', form),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['benefits'] });
+      resetForm();
+      toast.success('혜택이 등록되었습니다.');
+    },
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: () => api.patch(`/benefits/${editingId}`, form),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['benefits'] });
+      resetForm();
+      toast.success('혜택이 수정되었습니다.');
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => api.delete(`/benefits/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['benefits'] });
+      toast.success('혜택이 삭제되었습니다.');
+    },
+  });
+
+  const resetForm = () => {
+    setShowForm(false);
+    setEditingId(null);
+    setForm({ title: '', description: '', imageUrl: '', linkUrl: '' });
+    setPreview(false);
+  };
+
+  const startEdit = (b: any) => {
+    setForm({ title: b.title, description: b.description, imageUrl: b.imageUrl || '', linkUrl: b.linkUrl || '' });
+    setEditingId(b.id);
+    setShowForm(true);
+  };
+
+  return (
+    <div>
+      <div className="flex justify-between items-center mb-4">
+        <h3 className="font-semibold">혜택 목록 ({benefits.length}개)</h3>
+        <button onClick={() => { resetForm(); setShowForm(true); }} className="flex items-center gap-1 text-sm px-3 py-1.5 bg-gray-900 text-white rounded-lg">
+          <Plus size={14} /> 새 혜택
+        </button>
+      </div>
+
+      {showForm && (
+        <div className="mb-6 p-4 bg-gray-50 rounded-xl space-y-3">
+          <h4 className="font-medium text-sm">{editingId ? '혜택 수정' : '새 혜택 등록'}</h4>
+          <input placeholder="제목 *" value={form.title} onChange={e => setForm({...form, title: e.target.value})} className="w-full p-2.5 border border-gray-200 rounded-lg text-sm" />
+          <textarea placeholder="설명 *" value={form.description} onChange={e => setForm({...form, description: e.target.value})} className="w-full p-2.5 border border-gray-200 rounded-lg text-sm h-20 resize-none" />
+          <input placeholder="링크 URL (선택)" value={form.linkUrl} onChange={e => setForm({...form, linkUrl: e.target.value})} className="w-full p-2.5 border border-gray-200 rounded-lg text-sm" />
+          <ImageUpload value={form.imageUrl} onChange={(url) => setForm({...form, imageUrl: url})} onRemove={() => setForm({...form, imageUrl: ''})} placeholder="혜택 이미지 업로드" />
+
+          <button onClick={() => setPreview(!preview)} className="flex items-center gap-1 text-sm text-blue-500">
+            <Eye size={14} /> {preview ? '미리보기 닫기' : '미리보기'}
+          </button>
+          {preview && (
+            <div className="border border-gray-200 rounded-xl overflow-hidden">
+              {form.imageUrl && <img src={form.imageUrl} alt="" className="w-full h-32 object-cover" />}
+              <div className="p-3">
+                <p className="font-semibold text-sm">{form.title || '제목'}</p>
+                <p className="text-xs text-gray-600 mt-1">{form.description || '설명'}</p>
+              </div>
+            </div>
+          )}
+
+          <div className="flex gap-2">
+            <button
+              onClick={() => {
+                if (!form.title || !form.description) { toast.error('제목과 설명은 필수입니다.'); return; }
+                editingId ? updateMutation.mutate() : createMutation.mutate();
+              }}
+              className="px-4 py-2 bg-gray-900 text-white text-sm rounded-lg"
+            >{editingId ? '수정' : '등록'}</button>
+            <button onClick={resetForm} className="px-4 py-2 text-sm text-gray-500">취소</button>
+          </div>
+        </div>
+      )}
+
+      <div className="space-y-3">
+        {benefits.map((b: any) => (
+          <div key={b.id} className="flex gap-3 p-3 border border-gray-100 rounded-xl items-center">
+            {b.imageUrl && <img src={b.imageUrl} alt="" className="w-20 h-14 object-cover rounded-lg flex-none" />}
+            <div className="flex-1 min-w-0">
+              <p className="font-medium text-sm">{b.title}</p>
+              <p className="text-xs text-gray-500 truncate">{b.description}</p>
+            </div>
+            <div className="flex gap-1 flex-none">
+              <button onClick={() => startEdit(b)} className="p-1.5 text-gray-400 hover:text-blue-500"><Edit3 size={14} /></button>
+              <button onClick={() => deleteMutation.mutate(b.id)} className="p-1.5 text-gray-400 hover:text-red-500"><Trash2 size={14} /></button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ========== Admin: 이달의 갤러리 관리 ==========
+function GotmManageSection() {
+  const queryClient = useQueryClient();
+  const [showForm, setShowForm] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedGalleryId, setSelectedGalleryId] = useState<number | null>(null);
+  const [expiresAt, setExpiresAt] = useState('');
+
+  const { data: gotm = [] } = useQuery<any[]>({
+    queryKey: ['gallery-of-month'],
+    queryFn: () => api.get('/gallery-of-month').then(r => r.data),
+  });
+
+  // 갤러리 검색
+  const { data: searchResults = [] } = useQuery<any[]>({
+    queryKey: ['galleries-search', searchQuery],
+    queryFn: () => api.get('/galleries').then(r => r.data),
+    enabled: showForm,
+  });
+
+  const filteredResults = searchResults.filter((g: any) =>
+    g.name.toLowerCase().includes(searchQuery.toLowerCase()) &&
+    !gotm.some((item: any) => item.galleryId === g.id)
+  );
+
+  const createMutation = useMutation({
+    mutationFn: () => api.post('/gallery-of-month', { galleryId: selectedGalleryId, expiresAt }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['gallery-of-month'] });
+      setShowForm(false);
+      setSelectedGalleryId(null);
+      setExpiresAt('');
+      toast.success('이달의 갤러리가 등록되었습니다.');
+    },
+    onError: (err: any) => toast.error(err.response?.data?.error || '등록 실패'),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => api.delete(`/gallery-of-month/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['gallery-of-month'] });
+      toast.success('삭제되었습니다.');
+    },
+  });
+
+  return (
+    <div>
+      <div className="flex justify-between items-center mb-4">
+        <h3 className="font-semibold">이달의 갤러리 ({gotm.length}개)</h3>
+        <button onClick={() => setShowForm(!showForm)} className="flex items-center gap-1 text-sm px-3 py-1.5 bg-gray-900 text-white rounded-lg">
+          <Plus size={14} /> 갤러리 선정
+        </button>
+      </div>
+
+      {showForm && (
+        <div className="mb-6 p-4 bg-gray-50 rounded-xl space-y-3">
+          <h4 className="font-medium text-sm">갤러리 검색 및 선정</h4>
+          <div className="relative">
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input
+              placeholder="갤러리명 검색..."
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              className="w-full pl-9 p-2.5 border border-gray-200 rounded-lg text-sm"
+            />
+          </div>
+          {filteredResults.length > 0 && (
+            <div className="max-h-40 overflow-y-auto border border-gray-200 rounded-lg">
+              {filteredResults.map((g: any) => (
+                <button
+                  key={g.id}
+                  onClick={() => setSelectedGalleryId(g.id)}
+                  className={`w-full text-left p-2.5 text-sm border-b border-gray-100 last:border-0 hover:bg-gray-50 ${selectedGalleryId === g.id ? 'bg-blue-50' : ''}`}
+                >
+                  <span className="font-medium">{g.name}</span>
+                  <span className="text-gray-400 ml-2">({regionLabels[g.region]})</span>
+                </button>
+              ))}
+            </div>
+          )}
+          {selectedGalleryId && (
+            <p className="text-sm text-green-600">선택됨: {searchResults.find((g: any) => g.id === selectedGalleryId)?.name}</p>
+          )}
+          <div>
+            <label className="text-xs text-gray-500">등록 기한</label>
+            <input type="date" value={expiresAt} onChange={e => setExpiresAt(e.target.value)} className="w-full p-2.5 border border-gray-200 rounded-lg text-sm" />
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={() => {
+                if (!selectedGalleryId || !expiresAt) { toast.error('갤러리와 기한을 선택해주세요.'); return; }
+                createMutation.mutate();
+              }}
+              className="px-4 py-2 bg-gray-900 text-white text-sm rounded-lg"
+            >선정</button>
+            <button onClick={() => setShowForm(false)} className="px-4 py-2 text-sm text-gray-500">취소</button>
+          </div>
+        </div>
+      )}
+
+      <div className="space-y-3">
+        {gotm.map((item: any) => (
+          <div key={item.id} className="flex gap-3 p-3 border border-gray-100 rounded-xl items-center">
+            {item.gallery?.mainImage && <img src={item.gallery.mainImage} alt="" className="w-14 h-14 object-cover rounded-lg flex-none" />}
+            <div className="flex-1">
+              <p className="font-medium text-sm">{item.gallery?.name}</p>
+              <p className="text-xs text-gray-500 flex items-center gap-1">
+                <Calendar size={12} /> 만료: {new Date(item.expiresAt).toLocaleDateString('ko')}
+              </p>
+            </div>
+            <button onClick={() => deleteMutation.mutate(item.id)} className="p-1.5 text-gray-400 hover:text-red-500">
+              <Trash2 size={14} />
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
