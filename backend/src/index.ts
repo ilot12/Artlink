@@ -58,7 +58,8 @@ if (process.env.NODE_ENV === 'production') {
   const frontendDistPath = path.join(__dirname, '../../frontend/dist');
   app.use(express.static(frontendDistPath));
   // SPA fallback: API 라우트가 아닌 모든 요청을 index.html로
-  app.get('*', (_req, res) => {
+  // Express v5에서는 '*' 대신 '{*path}' 문법 사용
+  app.get('/{*path}', (_req, res) => {
     res.sendFile(path.join(frontendDistPath, 'index.html'));
   });
 }
