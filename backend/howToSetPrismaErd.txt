@@ -1,0 +1,143 @@
+============================================================
+ArtLink - Prisma ERD 자동 생성 설정 가이드
+대상 환경: Ubuntu / WSL2 (Debian 계열)
+================================
+
+## [개요]
+
+ArtLink 프로젝트에서는 **Prisma Schema를 기반으로 ERD(Entity Relationship Diagram)를
+자동 생성**하기 위해 다음 도구를 사용합니다.
+
+* Prisma ERD Generator
+* Mermaid CLI
+* Puppeteer (Headless Chrome)
+
+`npx prisma generate` 실행 시 자동으로 ERD 이미지가 생성됩니다.
+
+생성 파일:
+backend/prisma/ERD.svg
+
+## [1단계] Prisma ERD Generator 설치
+
+backend 폴더에서 다음 명령어를 실행합니다.
+
+cd backend
+npm install prisma-erd-generator --save-dev
+
+설치 완료 후 `npx prisma generate` 실행 시
+Prisma Client와 함께 ERD도 생성됩니다.
+
+## [2단계] Prisma Generator 설정 확인
+
+backend/prisma/schema.prisma 파일에
+다음 generator 설정이 존재해야 합니다.
+
+generator client {
+provider = "prisma-client-js"
+}
+
+generator erd {
+provider = "prisma-erd-generator"
+output   = "./ERD.svg"
+}
+
+이 설정이 있으면 `prisma generate` 실행 시
+ERD가 자동 생성됩니다.
+
+## [3단계] ERD 생성 실행
+
+backend 폴더에서 다음 명령어 실행
+
+cd backend
+npx prisma generate
+
+정상 실행 시 다음 파일이 생성됩니다.
+
+backend/prisma/ERD.svg
+
+## [4단계] Puppeteer 라이브러리 오류 발생 시
+
+Linux / WSL 환경에서는 다음과 같은 오류가 발생할 수 있습니다.
+
+error while loading shared libraries: libnss3.so: cannot open shared object file
+
+이 오류는 Puppeteer가 실행할 **Headless Chrome의 시스템 라이브러리가
+설치되지 않았을 때 발생**합니다.
+
+## [5단계] Ubuntu / WSL 필수 라이브러리 설치
+
+다음 명령어로 필요한 라이브러리를 설치합니다.
+
+sudo apt update
+
+sudo apt install -y 
+libnss3 
+libatk1.0-0t64 
+libatk-bridge2.0-0t64 
+libcups2t64 
+libxcomposite1 
+libxdamage1 
+libxrandr2 
+libgbm1 
+libxss1 
+libasound2t64 
+libgtk-3-0t64
+
+설치 후 다시 실행합니다.
+
+cd backend
+npx prisma generate
+
+## [6단계] 정상 작동 확인
+
+1. ERD 파일 생성 확인
+
+ls backend/prisma
+
+ERD.svg 파일이 존재하면 정상입니다.
+
+2. ERD 열기
+
+VS Code 또는 브라우저에서 열기
+
+backend/prisma/ERD.svg
+
+3. 변경 후 ERD 갱신
+
+Prisma Schema 변경 후 다음 명령어 실행
+
+npx prisma generate
+
+ERD가 자동으로 다시 생성됩니다.
+
+## [참고]
+
+Prisma ERD Generator
+https://www.npmjs.com/package/prisma-erd-generator
+
+Mermaid CLI
+https://github.com/mermaid-js/mermaid-cli
+
+Prisma 공식 문서
+https://www.prisma.io/docs
+
+## [문제 해결]
+
+Q: ERD가 생성되지 않습니다
+A: generator 설정이 schema.prisma에 있는지 확인하세요.
+
+Q: libnss3.so 오류 발생
+A: Puppeteer 실행에 필요한 라이브러리가 없습니다.
+위의 apt install 명령어를 실행하세요.
+
+Q: prisma generate 실행 시 puppeteer 관련 오류
+A: 대부분 Linux 라이브러리 누락 문제입니다.
+5단계 패키지를 모두 설치하세요.
+
+Q: ERD 생성 위치를 바꾸고 싶습니다
+A: schema.prisma generator 설정의 output을 변경하세요.
+
+generator erd {
+provider = "prisma-erd-generator"
+output   = "./ERD.svg"
+}
